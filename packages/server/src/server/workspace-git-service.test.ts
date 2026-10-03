@@ -583,6 +583,42 @@ describe("WorkspaceGitServiceImpl", () => {
     service.dispose();
   });
 
+  test("a late refresh from an older target does not replace a newer target's retained snapshot", async () => {
+    const staleStatus = createDeferred<CheckoutStatusGit>();
+    const getCheckoutStatus = vi
+      .fn<() => Promise<CheckoutStatusGit>>()
+      .mockResolvedValueOnce(createCheckoutStatus(REPO_CWD))
+      .mockImplementationOnce(() => staleStatus.promise)
+      .mockResolvedValueOnce(createCheckoutStatus(REPO_CWD, { currentBranch: "feature/newer" }));
+    const service = createService({ getCheckoutStatus });
+
+    const olderListener = vi.fn();
+    const older = service.registerWorkspace({ cwd: REPO_CWD }, olderListener);
+    await vi.waitFor(() => {
+      expect(olderListener).toHaveBeenCalledTimes(1);
+    });
+    const staleRefresh = service.getSnapshot(REPO_CWD, { force: true, reason: "stale" });
+    await vi.waitFor(() => {
+      expect(getCheckoutStatus).toHaveBeenCalledTimes(2);
+    });
+    older.unsubscribe();
+
+    const newerListener = vi.fn();
+    const newer = service.registerWorkspace({ cwd: REPO_CWD }, newerListener);
+    await vi.waitFor(() => {
+      expect(newerListener).toHaveBeenCalledTimes(1);
+    });
+    newer.unsubscribe();
+    expect(service.peekSnapshot(REPO_CWD)?.git.currentBranch).toBe("feature/newer");
+
+    staleStatus.resolve(createCheckoutStatus(REPO_CWD, { currentBranch: "feature/stale" }));
+    await staleRefresh;
+
+    expect(service.peekSnapshot(REPO_CWD)?.git.currentBranch).toBe("feature/newer");
+
+    service.dispose();
+  });
+
   test("bounds refresh generations and re-enqueues hot workspace successors fairly", async () => {
     const hotCwds = Array.from({ length: WORKSPACE_GIT_REFRESH_CONCURRENCY }, (_, index) =>
       path.resolve(`/tmp/hot-repo-${index}`),
