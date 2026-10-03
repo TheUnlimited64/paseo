@@ -525,6 +525,36 @@ describe("WorkspaceGitServiceImpl", () => {
     service.dispose();
   });
 
+  test("peekSnapshot keeps the last snapshot after the last listener leaves until a fresh one lands", async () => {
+    const getCheckoutStatus = vi
+      .fn<() => Promise<CheckoutStatusGit>>()
+      .mockResolvedValueOnce(createCheckoutStatus(REPO_CWD))
+      .mockResolvedValueOnce(createCheckoutStatus(REPO_CWD, { currentBranch: "feature/next" }));
+    const service = createService({ getCheckoutStatus });
+
+    const firstListener = vi.fn();
+    const first = service.registerWorkspace({ cwd: REPO_CWD }, firstListener);
+    await vi.waitFor(() => {
+      expect(firstListener).toHaveBeenCalledTimes(1);
+    });
+    first.unsubscribe();
+
+    expect(service.peekSnapshot(REPO_CWD)).toEqual(createSnapshot(REPO_CWD));
+
+    const secondListener = vi.fn();
+    const second = service.registerWorkspace({ cwd: REPO_CWD }, secondListener);
+    expect(service.peekSnapshot(REPO_CWD)).toEqual(createSnapshot(REPO_CWD));
+
+    await vi.waitFor(() => {
+      expect(secondListener).toHaveBeenCalledTimes(1);
+    });
+    expect(getCheckoutStatus).toHaveBeenCalledTimes(2);
+    expect(service.peekSnapshot(REPO_CWD)?.git.currentBranch).toBe("feature/next");
+
+    second.unsubscribe();
+    service.dispose();
+  });
+
   test("bounds refresh generations and re-enqueues hot workspace successors fairly", async () => {
     const hotCwds = Array.from({ length: WORKSPACE_GIT_REFRESH_CONCURRENCY }, (_, index) =>
       path.resolve(`/tmp/hot-repo-${index}`),

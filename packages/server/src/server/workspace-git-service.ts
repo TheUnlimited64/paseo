@@ -127,6 +127,9 @@ const WORKSPACE_GIT_AUXILIARY_READ_TTL_MS = 15_000;
 const WORKSPACE_GIT_INTERNAL_MIN_GAP_MS = 2_000;
 // Small values (booleans, short strings, small arrays); generous cap.
 const WORKSPACE_GIT_AUXILIARY_CACHE_MAX = 256;
+// Workspace records with no observer left (every client session ended). Sized above the
+// workspace counts seen on real hosts so a reconnect after the session grace finds all of them.
+const WORKSPACE_GIT_RETAINED_SNAPSHOT_MAX = 2_000;
 
 function mergeSets<T>(
   left: ReadonlySet<T>,
@@ -632,6 +635,13 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     string,
     WorkspaceGitAuxiliaryReadCacheEntry<string>
   >({ max: WORKSPACE_GIT_AUXILIARY_CACHE_MAX });
+  // Last snapshot of each workspace target torn down because its last listener left. Without it
+  // a client reconnecting after its session expired gets descriptors with no git facts, and then
+  // one workspace_update per workspace as the cold refreshes land. peekSnapshot serves these
+  // until the new target's own refresh replaces them.
+  private readonly retainedSnapshots = new LRUCache<string, WorkspaceGitRuntimeSnapshot>({
+    max: WORKSPACE_GIT_RETAINED_SNAPSHOT_MAX,
+  });
   private readonly checkoutDiffCache = new CheckoutDiffCache(() => this.deps.now().getTime());
   private watcherErrorCallbackCount = 0;
   constructor(options: WorkspaceGitServiceOptions) {
@@ -786,7 +796,9 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
 
   peekSnapshot(cwd: string): WorkspaceGitRuntimeSnapshot | null {
     cwd = resolve(cwd);
-    return this.workspaceTargets.get(cwd)?.latestSnapshot ?? null;
+    return (
+      this.workspaceTargets.get(cwd)?.latestSnapshot ?? this.retainedSnapshots.get(cwd) ?? null
+    );
   }
 
   async getCheckoutDiff(
@@ -1039,6 +1051,7 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     this.workingTreeWatchSetups.clear();
     this.workingTreeWatchResolutions.clear();
     this.workingTreeWatchAliases.clear();
+    this.retainedSnapshots.clear();
     this.snapshotUpdatedListeners.clear();
     this.disposePromise = this.fileObserver.close();
     return this.disposePromise;
@@ -3488,6 +3501,7 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     options?: { forceEmit?: boolean; notify?: boolean },
   ): void {
     target.latestSnapshot = snapshot;
+    this.retainedSnapshots.delete(target.cwd);
     if (target.listeners.size > 0) {
       this.updateForgePrStatusPollForTarget(target);
     }
@@ -3654,6 +3668,9 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
       }
     }
 
+    if (target.latestSnapshot) {
+      this.retainedSnapshots.set(target.cwd, target.latestSnapshot);
+    }
     this.closeWorkspaceTarget(target);
     this.workspaceTargets.delete(target.cwd);
   }
