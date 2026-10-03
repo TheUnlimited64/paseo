@@ -3501,6 +3501,11 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     options?: { forceEmit?: boolean; notify?: boolean },
   ): void {
     target.latestSnapshot = snapshot;
+    if (target.closed) {
+      // A refresh that outlived its target still read the newest facts for this cwd.
+      this.retainedSnapshots.set(target.cwd, snapshot);
+      return;
+    }
     this.retainedSnapshots.delete(target.cwd);
     if (target.listeners.size > 0) {
       this.updateForgePrStatusPollForTarget(target);
