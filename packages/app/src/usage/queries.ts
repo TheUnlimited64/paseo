@@ -178,6 +178,10 @@ export function useAgentUsage(serverId: string, agentId: string): AgentUsageView
     enabled: canReport,
     // Another agent's reports never stand in while this one's load.
     dataShape: "value",
+    // Dropped as soon as the details close: an agent resumed under another login keeps its ID, so
+    // reports kept from an earlier open could show the old login. The daemon's cache keeps each
+    // open's request cheap.
+    gcTime: 0,
     // The daemon's errors (an unknown agent) do not heal on retry, and reopening the details
     // fetches again; retrying would hold the loading sentence for seconds instead.
     retry: false,

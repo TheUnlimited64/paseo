@@ -9,7 +9,9 @@ import {
   expiredLogin,
   gate,
   hoverContextWindowMeter,
+  leaveContextWindowMeter,
   type MockAgentSession,
+  onPersonalLogin,
   onWorkLogin,
   openAgent,
   pressContextWindowMeter,
@@ -192,6 +194,21 @@ for (const theme of ["light", "dark"] as const) {
       expect(usage.agentRequests()).toEqual([agent.agentId]);
     });
 
+    await test.step("after a resume under another login, only that login shows", async () => {
+      await leaveContextWindowMeter(page);
+      const resumed = gate();
+      usage.answerNext({ stream: [resumed.promise, onPersonalLogin(claude!)] });
+      const tooltip = await hoverContextWindowMeter(page);
+      await expect(tooltip.getByText("Loading usage...", { exact: true })).toBeVisible();
+      await expect(tooltip.getByText("work@example.com", { exact: true })).toHaveCount(0);
+
+      resumed.open();
+      await expect(
+        usageCard(tooltip, "claude:personal").getByText("personal@example.com", { exact: true }),
+      ).toBeVisible();
+      await expect(tooltip.getByText("work@example.com", { exact: true })).toHaveCount(0);
+    });
+
     await test.step("a report with a problem shows it on the card", async () => {
       usage.answerNext([expiredLogin(onWorkLogin(claude!))]);
       await reloadAgent(page);
@@ -207,7 +224,7 @@ for (const theme of ["light", "dark"] as const) {
     await test.step("a host without usage reports shows only the context window", async () => {
       await expectOnlyContextWindowWithoutUsage(page, usage, hoverContextWindowMeter, shot);
       // One request per open that had usage; this one sends none.
-      expect(usage.agentRequests()).toHaveLength(3);
+      expect(usage.agentRequests()).toHaveLength(4);
     });
   });
 

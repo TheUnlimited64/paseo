@@ -38,6 +38,11 @@ export async function hoverContextWindowMeter(page: Page): Promise<Locator> {
   return tooltip;
 }
 
+export async function leaveContextWindowMeter(page: Page): Promise<void> {
+  await page.mouse.move(0, 0);
+  await expect(page.getByRole("tooltip").filter({ hasText: "Context window" })).toHaveCount(0);
+}
+
 /** Compact screens open the meter's details in a sheet. */
 export async function pressContextWindowMeter(page: Page): Promise<Locator> {
   await page.getByRole("button", { name: METER_NAME }).click({ timeout: 30_000 });
@@ -71,7 +76,20 @@ export async function expectRefreshButtons(surface: Locator, count: number): Pro
 
 /** A report on the agent's own login, which is not the host's default one. */
 export function onWorkLogin(report: UsageReportEntry): UsageReportEntry {
-  return { ...report, id: `${report.sourceId}:work`, account: { label: "work@example.com" } };
+  return onLogin(report, "work");
+}
+
+/** A report on the login an agent resumed under. */
+export function onPersonalLogin(report: UsageReportEntry): UsageReportEntry {
+  return onLogin(report, "personal");
+}
+
+function onLogin(report: UsageReportEntry, login: string): UsageReportEntry {
+  return {
+    ...report,
+    id: `${report.sourceId}:${login}`,
+    account: { label: `${login}@example.com` },
+  };
 }
 
 export function expiredLogin(report: UsageReportEntry): UsageReportEntry {
