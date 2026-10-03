@@ -61,14 +61,38 @@ export function replaceReport(
   return reports.map((report) => (report.id === reportId ? refreshed : report));
 }
 
-/** A report list with one streamed report in place of its previous copy, or appended if new. */
+/**
+ * The later-fetched of two copies of one report. A list request's copies were fetched when it
+ * started, so a Refresh that lands while it streams is newer than what the request still delivers.
+ */
+function laterFetched(shown: UsageReportEntry, arriving: UsageReportEntry): UsageReportEntry {
+  return Date.parse(shown.fetchedAt) > Date.parse(arriving.fetchedAt) ? shown : arriving;
+}
+
+/**
+ * A report list with one streamed report in place of its previous copy, or appended if new. A
+ * copy fetched after the streamed one stays.
+ */
 export function upsertReport(
   reports: readonly UsageReportEntry[] | undefined,
   report: UsageReportEntry,
 ): UsageReportEntry[] {
-  if (!reports) return [report];
-  if (!reports.some((entry) => entry.id === report.id)) return [...reports, report];
-  return replaceReport(reports, report.id, report);
+  if (!reports?.some((entry) => entry.id === report.id)) return [...(reports ?? []), report];
+  return reports.map((entry) => (entry.id === report.id ? laterFetched(entry, report) : entry));
+}
+
+/**
+ * The list a finished request leaves: its reports, dropping any the host no longer has, except
+ * that a copy on screen fetched after the request's copy stays.
+ */
+export function settleReports(
+  shown: readonly UsageReportEntry[] | undefined,
+  finished: readonly UsageReportEntry[],
+): UsageReportEntry[] {
+  return finished.map((report) => {
+    const copy = shown?.find((entry) => entry.id === report.id);
+    return copy ? laterFetched(copy, report) : report;
+  });
 }
 
 export interface UsageQueryState {

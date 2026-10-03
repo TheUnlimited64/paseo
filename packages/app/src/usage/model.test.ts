@@ -8,6 +8,7 @@ import {
   resolveUsageHostId,
   resolveUsageScreenHostId,
   resolveUsageView,
+  settleReports,
   upsertReport,
   usageWindowRowLabel,
   type UsageHost,
@@ -234,6 +235,30 @@ describe("upsertReport", () => {
   it("replaces a report the list already has, in place", () => {
     const streamed = entry({ sourceId: "alpha", planLabel: "New" });
     expect(upsertReport([alpha, beta], streamed)).toEqual([streamed, beta]);
+  });
+
+  it("keeps a copy fetched after the streamed one, such as a Refresh that landed first", () => {
+    const refreshed = { ...alpha, planLabel: "Refreshed", fetchedAt: "2026-01-01T00:05:00.000Z" };
+    expect(upsertReport([refreshed, beta], alpha)).toEqual([refreshed, beta]);
+  });
+});
+
+describe("settleReports", () => {
+  const alpha = entry({ sourceId: "alpha", planLabel: "Old" });
+  const beta = entry({ sourceId: "beta" });
+
+  it("takes the finished list, dropping reports the host no longer has", () => {
+    const streamed = entry({ sourceId: "alpha", planLabel: "New" });
+    expect(settleReports([alpha, beta], [streamed])).toEqual([streamed]);
+  });
+
+  it("keeps a report refreshed while the list streamed over its older copy in the list", () => {
+    const refreshed = { ...alpha, planLabel: "Refreshed", fetchedAt: "2026-01-01T00:05:00.000Z" };
+    expect(settleReports([refreshed, beta], [alpha, beta])).toEqual([refreshed, beta]);
+  });
+
+  it("takes the finished list as is when nothing was shown yet", () => {
+    expect(settleReports(undefined, [alpha, beta])).toEqual([alpha, beta]);
   });
 });
 

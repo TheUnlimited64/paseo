@@ -22,6 +22,7 @@ import {
   resolveAgentUsageView,
   resolveUsageRefresh,
   resolveUsageView,
+  settleReports,
   type UsageHost,
   type UsageQueryState,
   type AgentUsageView,
@@ -56,7 +57,7 @@ function requireClient(serverId: string) {
 /**
  * Lists a host's reports, or one agent's, writing each into `queryKey` as it streams in so a slow
  * source never holds back the others. The finished list then replaces the streamed one, dropping
- * any report the host no longer has.
+ * any report the host no longer has, but never a report refreshed while the list streamed.
  */
 async function streamReports(input: {
   queryClient: QueryClient;
@@ -74,7 +75,7 @@ async function streamReports(input: {
       );
     },
   );
-  return reports;
+  return settleReports(queryClient.getQueryData<UsageReportEntry[]>(queryKey), reports);
 }
 
 function listReports(
