@@ -195,18 +195,31 @@ for (const theme of ["light", "dark"] as const) {
     });
 
     await test.step("after a resume under another login, only that login shows", async () => {
+      // Closed while the old login's report is still on its way.
       await leaveContextWindowMeter(page);
+      const slowSource = gate();
+      usage.answerNext({ stream: [slowSource.promise, onWorkLogin(claude!)] });
+      const closedEarly = await hoverContextWindowMeter(page);
+      await expect(closedEarly.getByText("Loading usage...", { exact: true })).toBeVisible();
+      await leaveContextWindowMeter(page);
+
       const resumed = gate();
-      usage.answerNext({ stream: [resumed.promise, onPersonalLogin(claude!)] });
+      const finished = gate();
+      usage.answerNext({
+        stream: [resumed.promise, onPersonalLogin(claude!), finished.promise],
+      });
       const tooltip = await hoverContextWindowMeter(page);
       await expect(tooltip.getByText("Loading usage...", { exact: true })).toBeVisible();
       await expect(tooltip.getByText("work@example.com", { exact: true })).toHaveCount(0);
 
+      // The old login's report lands during the new request, before the new login's.
+      slowSource.open();
       resumed.open();
       await expect(
         usageCard(tooltip, "claude:personal").getByText("personal@example.com", { exact: true }),
       ).toBeVisible();
       await expect(tooltip.getByText("work@example.com", { exact: true })).toHaveCount(0);
+      finished.open();
     });
 
     await test.step("a report with a problem shows it on the card", async () => {
@@ -224,7 +237,7 @@ for (const theme of ["light", "dark"] as const) {
     await test.step("a host without usage reports shows only the context window", async () => {
       await expectOnlyContextWindowWithoutUsage(page, usage, hoverContextWindowMeter, shot);
       // One request per open that had usage; this one sends none.
-      expect(usage.agentRequests()).toHaveLength(4);
+      expect(usage.agentRequests()).toHaveLength(5);
     });
   });
 

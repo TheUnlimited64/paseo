@@ -65,11 +65,14 @@ async function streamReports(input: {
   serverId: string;
   agentId?: string;
   forceRefresh?: boolean;
+  /** Once aborted, reports still on their way are dropped instead of written. */
+  signal?: AbortSignal;
 }): Promise<UsageReportEntry[]> {
-  const { queryClient, queryKey, serverId, agentId, forceRefresh = false } = input;
+  const { queryClient, queryKey, serverId, agentId, forceRefresh = false, signal } = input;
   const { reports } = await requireClient(serverId).listUsageReports(
     { agentId, forceRefresh },
     (report) => {
+      if (signal?.aborted) return;
       queryClient.setQueryData<UsageReportEntry[]>(queryKey, (current) =>
         upsertReport(current, report),
       );
@@ -174,7 +177,9 @@ export function useAgentUsage(serverId: string, agentId: string): AgentUsageView
   const queryKey = agentUsageQueryKey(serverId, agentId);
   const query = useFetchQuery({
     queryKey,
-    queryFn: () => streamReports({ queryClient, queryKey, serverId, agentId }),
+    // Consuming the signal cancels the request when the details close, so a reopen sends a new
+    // request instead of joining one scoped to the login the agent ran under before.
+    queryFn: ({ signal }) => streamReports({ queryClient, queryKey, serverId, agentId, signal }),
     enabled: canReport,
     // Another agent's reports never stand in while this one's load.
     dataShape: "value",
